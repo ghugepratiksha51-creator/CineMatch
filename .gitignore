@@ -1,0 +1,9 @@
+﻿.streamlit/secrets.toml
+__pycache__/
+.venv/
+*.pyc
+dataset/*
+!dataset/combined_movies.csv
+!dataset/top_50_recommendations.npz
+backup_before_matrix_rebuild/
+app_backup.py
