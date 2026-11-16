@@ -1,8 +1,8 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
+import re
 
 from PIL import Image, ImageDraw
 from io import BytesIO
@@ -334,10 +334,59 @@ def display_poster(poster_url):
 
 
 # --------------------------------------------------
+# GENRE HELPERS
+# --------------------------------------------------
+
+def parse_genres(value):
+
+    if pd.isna(value):
+        return []
+
+    value = str(value).strip()
+
+    if not value or value == r"\N":
+        return []
+
+    # Keep Science Fiction as one genre if it appears in the dataset.
+    value = re.sub(
+        r"\bScience Fiction\b",
+        "Science_Fiction",
+        value,
+        flags=re.IGNORECASE
+    )
+
+    # Dataset values use both spaces and pipe separators.
+    genre_values = re.split(r"[|\s]+", value)
+
+    parsed = []
+
+    for genre_name in genre_values:
+
+        if not genre_name or genre_name == r"\N":
+            continue
+
+        # Movie and TV are content types, not genres.
+        if genre_name.lower() in ["movie", "tv"]:
+            continue
+
+        if genre_name == "Science_Fiction":
+            genre_name = "Science Fiction"
+
+        parsed.append(genre_name)
+
+    return parsed
+
+
+# --------------------------------------------------
 # RECOMMENDATION FUNCTION
 # --------------------------------------------------
 
-def recommend_movies(selected_index, category="All Movies", top_n=5):
+def recommend_movies(
+    selected_index,
+    category="All Movies",
+    selected_genre="All Genres",
+    top_n=5
+):
 
     if category == "Bollywood":
 
@@ -362,10 +411,18 @@ def recommend_movies(selected_index, category="All Movies", top_n=5):
         and int(index) != selected_index
     ]
 
-    # Return requested number of recommendations
-    recommended_indexes = recommended_indexes[:top_n]
+    # Keep recommendations in their original similarity-ranked order.
+    recommended_movies = movies.iloc[recommended_indexes]
 
-    return movies.iloc[recommended_indexes]
+    # Apply the selected genre to the ranked recommendations.
+    if selected_genre != "All Genres":
+        recommended_movies = recommended_movies[
+            recommended_movies["genres"].apply(
+                lambda value: selected_genre in parse_genres(value)
+            )
+        ]
+
+    return recommended_movies.head(top_n)
 
 
 # --------------------------------------------------
@@ -400,6 +457,18 @@ category = st.radio(
     horizontal=True
 )
 
+# Build clean genre choices from the dataset.
+available_genres = sorted({
+    genre_name
+    for value in movies["genres"].dropna()
+    for genre_name in parse_genres(value)
+})
+
+selected_genre = st.selectbox(
+    "Select Movie Genre",
+    ["All Genres"] + available_genres
+)
+
 
 # --------------------------------------------------
 # FILTER MOVIES
@@ -416,10 +485,18 @@ else:
         == category.lower()
     ].copy()
 
+# Apply genre filter to the movie selection list.
+if selected_genre != "All Genres":
+    filtered_movies = filtered_movies[
+        filtered_movies["genres"].apply(
+            lambda value: selected_genre in parse_genres(value)
+        )
+    ]
+
 
 if filtered_movies.empty:
 
-    st.warning("No movies available in this category.")
+    st.warning("No movies available for this category and genre.")
     st.stop()
 
 
@@ -453,6 +530,7 @@ if st.button("✨ Recommend Movies", use_container_width=True):
     st.session_state["selected_movie"] = selected_movie
     st.session_state["selected_index"] = selected_index
     st.session_state["selected_category"] = category
+    st.session_state["selected_genre"] = selected_genre
 
 
 # --------------------------------------------------
@@ -464,6 +542,7 @@ if "selected_index" in st.session_state:
     selected_index = st.session_state["selected_index"]
     selected_movie = st.session_state["selected_movie"]
     selected_category = st.session_state["selected_category"]
+    selected_genre = st.session_state.get("selected_genre", "All Genres")
 
     st.markdown(
         '<div class="section-title">🎥 Recommended Movies For You</div>',
@@ -473,12 +552,16 @@ if "selected_index" in st.session_state:
     recommendations = recommend_movies(
         selected_index,
         selected_category,
+        selected_genre=selected_genre,
         top_n=5
     )
 
     if recommendations.empty:
 
-        st.info("No recommendations found.")
+        st.info(
+            "No recommendations found for this genre. "
+            "Try selecting All Genres or another genre."
+        )
 
     else:
 
